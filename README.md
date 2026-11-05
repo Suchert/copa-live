@@ -7,10 +7,10 @@ Uruchomiona na stronie martialmatch.com pokazuje zawodników Copacabany na żywo
 Kod zakładki:
 
 ```
-javascript:(function(){var d=document,u='/copa-live.min.js?t='+Date.now(),s=d.createElement('script');s.src='https://cdn.jsdelivr.net/gh/Suchert/copa-live@main'+u;s.onerror=function(){var t=d.createElement('script');t.src='https://raw.githack.com/Suchert/copa-live/main'+u;d.body.appendChild(t)};d.body.appendChild(s)})()
+javascript:(function(){var d=document,v='29f75c9e8297e290d6e3b943704317378c07b046',u='/copa-live.min.js',s=d.createElement('script');s.src='https://cdn.jsdelivr.net/gh/Suchert/copa-live@'+v+u;s.onerror=function(){var t=d.createElement('script');t.src='https://rawcdn.githack.com/Suchert/copa-live/'+v+u;d.body.appendChild(t)};d.body.appendChild(s)})()
 ```
 
 - `copa-live.js` – kod źródłowy
-- `copa-live.min.js` – wersja zminifikowana, ładowana przez zakładkę (jsDelivr, zapasowo raw.githack.com)
+- `copa-live.min.js` – wersja zminifikowana, ładowana przez zakładkę (jsDelivr, zapasowo rawcdn.githack.com; zakładka wskazuje konkretny, przetestowany commit)
 
 Najbliższe walki pochodzą z kolejki walk MartialMatch (tylko walki nierozegrane), a wyniki i miejsca z drabinek – pobieranych oszczędnie ze względu na limit zapytań serwisu.
