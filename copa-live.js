@@ -37,7 +37,7 @@
   function hm(d) { return d.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Warsaw" }); }
   function dayName(d) { var n = d.toLocaleDateString("pl-PL", { weekday: "short", timeZone: "Europe/Warsaw" }); return n.charAt(0).toUpperCase() + n.slice(1); }
   var ROUND = { final: "finał", semi_final: "półfinał", quarter_final: "ćwierćfinał", repechage: "repasaż", third_place: "o 3. miejsce" };
-  var DONE = { out: 1, g1: 1, g2: 1, g3: 1, past: 1 };
+  var DONE = { out: 1, g1: 1, g2: 1, g3: 1, past: 1, fin: 1 };
   function score(h) {
     if (/submission/i.test(h.finish)) return " (poddanie)";
     var a = String(h.myPts).split(":"), b = String(h.opPts).split(":");
@@ -215,12 +215,13 @@
         } else if (br && played.length && !open.length) {
           var last = played[played.length - 1], type = br.b.type;
           var inFinal = played.filter(function (g) { return g.round === "final"; })[0];
-          if (inFinal) s.state = inFinal.res === "w" ? "g1" : "g2";
+          if (type !== 1 && type !== 2) s.state = "fin"; // np. „każdy z każdym” – miejsce sprawdza się w drabince
+          else if (inFinal) s.state = inFinal.res === "w" ? "g1" : "g2";
           else if (last.res === "l" && (last.round === "semi_final" || (type !== 1 && (br.b.totalCompetitors || 0) <= 3))) s.state = "g3";
           else if (last.res === "l") s.state = "out";
           else s.state = "wait";
-          s.sort = s.state === "wait" ? 8e15 : 9e15;
-        } else if (br && (played.length || open.length) && ci && ci.active) { s.state = "wait"; s.sort = 8e15; }
+          s.sort = s.state === "wait" ? 2.5e12 : 9e15;
+        } else if (br && (played.length || open.length) && ci && ci.active) { s.state = "wait"; s.sort = 2.5e12; }
         else if (ci && !ci.active && ci.end < now) { s.state = "past"; s.sort = 9.5e15; }
         else if (ci && ci.active && now >= ci.start && !br) { s.state = "check"; s.sort = 8.5e15; }
         else if (s.segs.length) { s.sort = s.segs[0].start.getTime() + 1e12; }
@@ -263,6 +264,7 @@
       else if (s.state === "g2") { tm = "🥈<small>2. miejsce</small>"; }
       else if (s.state === "g3") { tm = "🥉<small>3. miejsce</small>"; }
       else if (s.state === "wait") { tm = "…<small>czeka na kolejną walkę</small>"; }
+      else if (s.state === "fin") { tm = "✓<small>zakończył</small>"; ln2 = "Miejsce – zobacz drabinkę."; }
       else if (s.state === "past") { tm = "✓<small>kategoria zakończona</small>"; ln2 = "Wynik w drabince."; }
       else if (s.state === "check") { tm = "?<small>brak walki w kolejce</small>"; ln2 = "Kategoria już trwa – sprawdź drabinkę."; }
       else {
