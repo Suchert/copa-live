@@ -12,7 +12,7 @@
 
   // Drugie kliknięcie zakładki zamyka nakładkę.
   var old = document.getElementById(OV);
-  if (old) { old.remove(); clearInterval(window.__copaTimer); clearInterval(window.__copaTick); return; }
+  if (old) { old.remove(); clearInterval(window.__copaTimer); clearInterval(window.__copaTick); clearTimeout(window.__copaMore); return; }
 
   // ---------- pomocnicze ----------
   var UNITS = [[/unity/, "Unity Team – Copacabana (Warszawa)"], [/ursyn/, "Warszawa – Ursynów"], [/suwalk/, "Suwałki"], [/lubart/, "Lubartów (MKS)"], [/ostrowiec/, "Ostrowiec Świętokrzyski"], [/swiecie/, "Świecie"], [/inowroc/, "Inowrocław"], [/bydgoszcz/, "Bydgoszcz"], [/torun/, "Toruń"], [/kielce/, "Kielce"], [/lublin/, "Lublin"], [/czestoch/, "Częstochowa"], [/konin/, "Konin"], [/tarnow/, "Tarnów"], [/poznan|wielkopol/, "Poznań"], [/lodz/, "Łódź"], [/bialystok/, "Białystok"], [/pruszk/, "Pruszków"], [/warszaw|warsaw/, "Warszawa (Mokotów)"]];
@@ -80,6 +80,7 @@
   function $(id) { return ov.querySelector("#" + id); }
 
   var view = "all", D = null, loading = false, lastOk = null, RAW = null;
+  var MORE = false;
   var BR = {}; // pamięć drabinek: cid -> {b: dane, t: czas pobrania, fin: kategoria zakończona}
 
   // ---------- dane ----------
@@ -103,27 +104,38 @@
   // Wyniki rozegranych walk są tylko w drabinkach – lista walk zawiera wyłącznie walki nierozegrane.
   // Pobieramy drabinki kategorii Copacabany, które już się zaczęły (dzień aktywny) albo są z poprzedniego dnia (tylko ★).
   function loadBrackets(d) {
-    var now = Date.now(), info = catInfo(d), pend = pendingPids(d), need = [];
+    var now = Date.now(), info = catInfo(d), pend = pendingPids(d), need = [], hide = $("cl-hide").checked;
     d.L.categories.forEach(function (c) {
       var copa = c.competitors.filter(function (p) { return isCopa(p) && !p.isDisqualifiedForNoPayment; });
       if (!copa.length) return;
       var ci = info[c.parameterId]; if (!ci) return;
       var cache = BR[c.parameterId];
-      if (cache && (cache.fin || now - cache.t < 50000)) return;
+      // pobieramy ponownie tylko, gdy w kategorii przybyło rozegranych walk (albo dawno nie sprawdzaliśmy)
+      if (cache && (cache.fin || (cache.done === ci.done && now - cache.t < 180000))) return;
       var anyStar = copa.some(function (p) { return stars.has(keyOf(p, c.category)); });
       var noPending = copa.some(function (p) { return !pend[p.publicId]; });
-      if (ci.active && (ci.done > 0 || (noPending && now >= ci.start))) need.push(c.parameterId);
-      else if (!ci.active && ci.end < now && (anyStar || view === "all" && !$("cl-hide").checked)) need.push(c.parameterId);
+      if (ci.active) {
+        if (!(ci.done > 0 || now >= ci.start)) return;
+        if (noPending || (anyStar && ci.done > 0)) need.push({ cid: c.parameterId, pri: anyStar ? 0 : 1 });
+      } else if (ci.end < now && (anyStar || (view === "all" && !hide))) need.push({ cid: c.parameterId, pri: anyStar ? 0 : 2 });
     });
-    var i = 0;
-    function worker() {
-      if (i >= need.length) return Promise.resolve();
-      var cid = need[i++];
-      return getJSON("/api/events/" + EV + "/results/public/bracket/" + cid)
-        .then(function (b) { var ci = info[cid]; BR[cid] = { b: b, t: Date.now(), fin: !!(ci && ci.total > 0 && ci.done >= ci.total) || !ci.active }; })
-        .catch(function () {}).then(worker);
+    need.sort(function (x, y) { return x.pri - y.pri; });
+    var todo = need.slice(0, 25), backlog = need.length - todo.length, stop = false;
+    function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+    function one(cid, retry) {
+      return fetch("/api/events/" + EV + "/results/public/bracket/" + cid, { cache: "no-store", credentials: "same-origin" }).then(function (r) {
+        if (r.status === 429) { if (retry) return wait(1500).then(function () { return one(cid, false); }); stop = true; return; }
+        if (!r.ok) return;
+        return r.json().then(function (b) { var ci = info[cid]; BR[cid] = { b: b, t: Date.now(), done: ci ? ci.done : 0, fin: !ci || !ci.active || (ci.total > 0 && ci.done >= ci.total) }; });
+      }).catch(function () {});
     }
-    return Promise.all([worker(), worker(), worker(), worker(), worker(), worker()]);
+    var chain = Promise.resolve();
+    todo.forEach(function (x) { chain = chain.then(function () { if (!stop) return one(x.cid, true).then(function () { return wait(250); }); }); });
+    return chain.then(function () {
+      MORE = backlog > 0 || stop;
+      // zaległe drabinki: dociągnij za chwilę, nie czekając pełnej minuty
+      if (MORE) { clearTimeout(window.__copaMore); window.__copaMore = setTimeout(function () { if (document.getElementById(OV)) load(); }, 8000); }
+    });
   }
   function catInfo(d) {
     var info = {};
@@ -234,7 +246,7 @@
       return true;
     }).sort(function (a, b) { return a.sort - b.sort || a.ln.localeCompare(b.ln, "pl"); });
     var nStars = D.starts.filter(function (s) { return stars.has(s.key); }).length;
-    $("cl-status").textContent = "Dane z " + hm(lastOk) + ":" + String(lastOk.getSeconds()).padStart(2, "0") + " · dzień w systemie: " + D.actDay + " · ★ " + nStars + " · godziny w czasie polskim";
+    $("cl-status").textContent = "Dane z " + hm(lastOk) + ":" + String(lastOk.getSeconds()).padStart(2, "0") + " · dzień w systemie: " + D.actDay + " · ★ " + nStars + " · godziny w czasie polskim" + (MORE ? " · wczytuję wyniki…" : "");
     var html = rows.map(function (s) {
       var cls = s.state === "now" ? "now" : (s.state === "next" && s.ahead != null && s.ahead <= 2) ? "soon" : DONE[s.state] ? "out" : "";
       var tm = "", ln2 = "";
@@ -273,7 +285,7 @@
     if (b.dataset.k) { var k = b.dataset.k; stars.has(k) ? stars.delete(k) : stars.add(k); saveStars(); render(); return; }
     if (b.dataset.v) { view = b.dataset.v; ov.querySelectorAll(".seg button").forEach(function (x) { x.classList.toggle("on", x === b); }); render(); return; }
     var a = b.dataset.a;
-    if (a === "close") { ov.remove(); clearInterval(window.__copaTimer); clearInterval(window.__copaTick); }
+    if (a === "close") { ov.remove(); clearInterval(window.__copaTimer); clearInterval(window.__copaTick); clearTimeout(window.__copaMore); }
     if (a === "ref") load();
     if (a === "code") $("cl-code").classList.toggle("open");
     if (a === "cout") { $("cl-codetxt").value = "COPA26:" + (D ? D.starts.filter(function (s) { return stars.has(s.key); }).map(function (s) { return hash5(s.key); }).join(".") : ""); $("cl-codetxt").select(); $("cl-cmsg").textContent = "Skopiuj zaznaczony kod."; }
