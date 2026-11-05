@@ -1,8 +1,10 @@
 (function () {
   "use strict";
-  var EV = 1012;
+  var EV = window.__copaEV || 1012;
   var EVENT_URL = "https://martialmatch.com/pl/events/1012-xxii-mistrzostwa-polski-bjj/current-matches";
   var OV = "copa-live-ov";
+  var mp = location.pathname.match(/\/[a-z]{2}\/events\/(\d+)[^/]*/);
+  var EVPATH = mp && +mp[1] === EV ? mp[0] : (EV === 1012 ? "/pl/events/1012-xxii-mistrzostwa-polski-bjj" : "/pl/events/" + EV);
   var SK = "copa-mp-bjj-2026-stars";
 
   // Skrypt musi działać na stronie martialmatch.com – tylko tam przeglądarka pozwala czytać dane.
@@ -16,7 +18,8 @@
   var UNITS = [[/unity/, "Unity Team – Copacabana (Warszawa)"], [/ursyn/, "Warszawa – Ursynów"], [/suwalk/, "Suwałki"], [/lubart/, "Lubartów (MKS)"], [/ostrowiec/, "Ostrowiec Świętokrzyski"], [/swiecie/, "Świecie"], [/inowroc/, "Inowrocław"], [/bydgoszcz/, "Bydgoszcz"], [/torun/, "Toruń"], [/kielce/, "Kielce"], [/lublin/, "Lublin"], [/czestoch/, "Częstochowa"], [/konin/, "Konin"], [/tarnow/, "Tarnów"], [/poznan|wielkopol/, "Poznań"], [/lodz/, "Łódź"], [/bialystok/, "Białystok"], [/pruszk/, "Pruszków"], [/warszaw|warsaw/, "Warszawa (Mokotów)"]];
   function norm(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/ł/g, "l"); }
   function unitOf(a, b) { var t = norm(a + " " + b); for (var i = 0; i < UNITS.length; i++) if (UNITS[i][0].test(t)) return UNITS[i][1]; return String(a || "").trim(); }
-  function isCopa(p) { return p && /copacabana/i.test((p.academy || "") + " " + (p.branch || "")); }
+  var CLUB = window.__copaClub ? new RegExp(window.__copaClub, "i") : /copacabana/i;
+  function isCopa(p) { return p && CLUB.test((p.academy || "") + " " + (p.branch || "")); }
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
   // Kategoria w tej samej postaci co w pliku HTML (żeby kody ★ były zgodne).
   function ourCat(c) {
@@ -33,7 +36,14 @@
   function toDate(s) { return new Date(String(s).replace(" ", "T") + "Z"); }
   function hm(d) { return d.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Warsaw" }); }
   function dayName(d) { var n = d.toLocaleDateString("pl-PL", { weekday: "short", timeZone: "Europe/Warsaw" }); return n.charAt(0).toUpperCase() + n.slice(1); }
-  var ROUND = { final: "finał", semi_final: "półfinał", quarter_final: "ćwierćfinał" };
+  var ROUND = { final: "finał", semi_final: "półfinał", quarter_final: "ćwierćfinał", repechage: "repasaż", third_place: "o 3. miejsce" };
+  var DONE = { out: 1, g1: 1, g2: 1, g3: 1, past: 1 };
+  function score(h) {
+    if (/submission/i.test(h.finish)) return " (poddanie)";
+    var a = String(h.myPts).split(":"), b = String(h.opPts).split(":");
+    if (a[0] === "" || b[0] === "" || a[0] == null) return "";
+    return " (" + a[0] + ":" + b[0] + (a[0] === b[0] && a[1] != null ? ", przew. " + a[1] + ":" + b[1] : "") + ")";
+  }
   function roundPl(r) { return ROUND[r] || r || ""; }
   function pname(c) { return c && c.firstName && c.firstName.indexOf("-- awaiting") !== 0 ? (c.firstName.trim() + " " + (c.lastName || "").trim()) : ""; }
   function sameComp(c, p) { return c && ((c.publicId && c.publicId === p.publicId)); }
@@ -56,20 +66,21 @@
     "#OV .mt{display:inline-block;padding:1px 8px;border-radius:999px;background:#e7f5ef;color:#0b7a5a;font-weight:700}#OV .ln{grid-column:2/4;font-size:13px;color:#344054}#OV .ln b{color:#14181f}" +
     "#OV .tag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:6px;margin:2px 4px 0 0;background:#f2f4f7;color:#344054}#OV .tag.w{background:#e7f5ef;color:#0b5a42}#OV .tag.l{background:#fee4e2;color:#912018}#OV .tag.now{background:#d92d20;color:#fff;font-weight:700}" +
     "#OV h3{font-size:13px;color:#667085;text-transform:uppercase;letter-spacing:.04em;margin:14px 2px 6px}#OV .msg{padding:10px 12px;border-radius:10px;background:#fff;border:1px dashed #d0d5dd;color:#667085}#OV .err{background:#fee4e2;color:#912018;border-color:#fda29b}" +
-    "#OV .code{display:none;padding:10px 12px;background:#fff;border-bottom:1px solid #e4e7ec}#OV .code textarea{width:100%;font:12px ui-monospace,Menlo,monospace;padding:6px;border:1px solid #d0d5dd;border-radius:8px}#OV .code.open{display:block}";
+    "#OV .code{display:none;padding:10px 12px;background:#fff;border-bottom:1px solid #e4e7ec}#OV .code textarea{width:100%;font:12px ui-monospace,Menlo,monospace;padding:6px;border:1px solid #d0d5dd;border-radius:8px}#OV .code.open{display:block}#OV a.bl{font-size:12px;color:#0b7a5a;white-space:nowrap}";
   var ov = document.createElement("div"); ov.id = OV;
   ov.innerHTML = "<style>" + css.replace(/#OV/g, "#" + OV) + "</style>" +
     "<div class='hd'><b>Copacabana · na żywo</b><button data-a='ref'>Odśwież</button><button data-a='code'>★ kod</button><button data-a='close'>Zamknij ✕</button><small id='cl-status'>Ładowanie…</small></div>" +
     "<div class='ctl'><div class='seg'><button data-v='mine'>Moi ★</button><button data-v='all' class='on'>Wszyscy</button></div>" +
     "<input type='search' id='cl-q' placeholder='Szukaj: nazwisko, mata, kategoria…'><select id='cl-unit'><option value=''>Wszystkie jednostki</option></select>" +
-    "<label class='ck'><input type='checkbox' id='cl-hide' checked> ukryj zakończone</label><label class='ck'><input type='checkbox' id='cl-auto' checked> auto co 60 s</label></div>" +
+    "<label class='ck'><input type='checkbox' id='cl-hide' checked> ukryj zakończone (wyniki)</label><label class='ck'><input type='checkbox' id='cl-auto' checked> auto co 60 s</label></div>" +
     "<div class='code' id='cl-code'><div style='font-size:13px;color:#667085;margin-bottom:6px'>Kod ★ jest zgodny z plikiem HTML. Wklej kod, żeby wczytać gwiazdki, albo skopiuj swój.</div><textarea id='cl-codetxt' rows='3'></textarea>" +
     "<div style='display:flex;gap:6px;margin-top:6px;flex-wrap:wrap'><button data-a='cin'>Wczytaj (zastąp)</button><button data-a='cadd'>Dodaj do obecnych</button><button data-a='cout'>Pokaż mój kod</button><span id='cl-cmsg' style='font-size:13px;color:#0b7a5a;align-self:center'></span></div></div>" +
     "<div class='wrap' id='cl-list'><div class='msg'>Pobieram dane z MartialMatch…</div></div>";
   document.body.appendChild(ov);
   function $(id) { return ov.querySelector("#" + id); }
 
-  var view = "all", D = null, loading = false, lastOk = null;
+  var view = "all", D = null, loading = false, lastOk = null, RAW = null;
+  var BR = {}; // pamięć drabinek: cid -> {b: dane, t: czas pobrania, fin: kategoria zakończona}
 
   // ---------- dane ----------
   function load() {
@@ -83,13 +94,77 @@
         var ids = act.mats.map(function (m) { return m.id; }).join(",");
         return getJSON("/api/public/events/" + EV + "/fights?matIds=" + ids).then(function (F) { return { S: S, L: L, F: F, act: act }; });
       })
-      .then(function (d) { D = build(d); lastOk = new Date(); render(); })
+      .then(function (d) { RAW = d; return loadBrackets(d); })
+      .then(function () { D = build(RAW); lastOk = new Date(); render(); })
       .catch(function (e) { $("cl-status").textContent = "Błąd pobierania – spróbuję ponownie. (" + e.message + ")"; if (!D) $("cl-list").innerHTML = "<div class='msg err'>Nie udało się pobrać danych: " + esc(e.message) + "</div>"; })
       .then(function () { loading = false; });
   }
 
+  // Wyniki rozegranych walk są tylko w drabinkach – lista walk zawiera wyłącznie walki nierozegrane.
+  // Pobieramy drabinki kategorii Copacabany, które już się zaczęły (dzień aktywny) albo są z poprzedniego dnia (tylko ★).
+  function loadBrackets(d) {
+    var now = Date.now(), info = catInfo(d), pend = pendingPids(d), need = [];
+    d.L.categories.forEach(function (c) {
+      var copa = c.competitors.filter(function (p) { return isCopa(p) && !p.isDisqualifiedForNoPayment; });
+      if (!copa.length) return;
+      var ci = info[c.parameterId]; if (!ci) return;
+      var cache = BR[c.parameterId];
+      if (cache && (cache.fin || now - cache.t < 50000)) return;
+      var anyStar = copa.some(function (p) { return stars.has(keyOf(p, c.category)); });
+      var noPending = copa.some(function (p) { return !pend[p.publicId]; });
+      if (ci.active && (ci.done > 0 || (noPending && now >= ci.start))) need.push(c.parameterId);
+      else if (!ci.active && ci.end < now && (anyStar || view === "all" && !$("cl-hide").checked)) need.push(c.parameterId);
+    });
+    var i = 0;
+    function worker() {
+      if (i >= need.length) return Promise.resolve();
+      var cid = need[i++];
+      return getJSON("/api/events/" + EV + "/results/public/bracket/" + cid)
+        .then(function (b) { var ci = info[cid]; BR[cid] = { b: b, t: Date.now(), fin: !!(ci && ci.total > 0 && ci.done >= ci.total) || !ci.active }; })
+        .catch(function () {}).then(worker);
+    }
+    return Promise.all([worker(), worker(), worker(), worker(), worker(), worker()]);
+  }
+  function catInfo(d) {
+    var info = {};
+    d.S.schedules.forEach(function (s) {
+      s.mats.forEach(function (m) {
+        m.categories.forEach(function (c) {
+          var x = info[c.id] || (info[c.id] = { active: s.id === d.act.id, done: 0, total: 0, start: Infinity, end: 0 });
+          x.done += c.doneFights || 0; x.total += c.totalFights || 0;
+          x.start = Math.min(x.start, toDate(c.scheduledCategoryTime.start).getTime()); x.end = Math.max(x.end, toDate(c.scheduledCategoryTime.end).getTime());
+        });
+      });
+    });
+    return info;
+  }
+  function pendingPids(d) {
+    var m = {};
+    (d.F.result || []).forEach(function (x) { var f = x.publicFight; [f.firstCompetitor, f.secondCompetitor].forEach(function (c) { if (c && c.publicId) m[c.publicId] = 1; }); });
+    return m;
+  }
+  function keyOf(p, cat) { return p.firstName.trim() + "|" + p.lastName.trim() + "|" + ourCat(cat); }
+  function roundKey(n) { return n ? (n.translationKey || n.label || "") : ""; }
+  // Walki zawodnika w drabince (w kolejności rund).
+  function bracketGames(b, pid) {
+    var out = [];
+    (b.results || []).forEach(function (grp) {
+      (grp || []).forEach(function (rd) {
+        (rd.games || []).forEach(function (g) {
+          var me = g.player1 && g.player1.data && g.player1.data.publicId === pid ? g.player1 : g.player2 && g.player2.data && g.player2.data.publicId === pid ? g.player2 : null;
+          if (!me) return;
+          var op = me === g.player1 ? g.player2 : g.player1;
+          var res = me.winner === true ? "w" : me.winner === false ? "l" : "";
+          var bye = !op || op.id === 0 || (op.data && /BYE/.test(op.data.firstName || ""));
+          out.push({ round: roundKey(rd.name), res: res, bye: bye, opName: op && op.data ? pname(op.data) : "", myPts: me.points || "", opPts: op ? op.points || "" : "", finish: g.result && g.result.fightFinishType || "" });
+        });
+      });
+    });
+    return out;
+  }
+
   function build(d) {
-    var matName = {}, segs = {};
+    var matName = {}, segs = {}, info = catInfo(d), now = Date.now();
     d.S.schedules.forEach(function (s) {
       s.mats.forEach(function (m) {
         matName[m.id] = m.name;
@@ -106,37 +181,39 @@
       var st = q[m], cur = st && st.fightId ? byMat[m].find(function (f) { return f.id === st.fightId; }) : null;
       curNo[m] = cur ? { no: cur.fightNumber, id: cur.id } : null;
     });
-    var starts = [];
-    var unitSet = {};
+    var starts = [], unitSet = {};
     d.L.categories.forEach(function (c) {
       c.competitors.forEach(function (p) {
         if (!isCopa(p) || p.isDisqualifiedForNoPayment) return;
-        var fn = p.firstName.trim(), ln = p.lastName.trim(), oc = ourCat(c.category);
+        var fn = p.firstName.trim(), ln = p.lastName.trim(), oc = ourCat(c.category), ci = info[c.parameterId];
         var mine = fights.filter(function (f) { return f.parameterId === c.parameterId && (sameComp(f.firstCompetitor, p) || sameComp(f.secondCompetitor, p)); });
-        mine.sort(function (a, b) { return a.t - b.t; });
-        var hist = [], next = null, lost = false, wonFinal = false;
-        mine.forEach(function (f) {
-          var me = sameComp(f.firstCompetitor, p) ? f.firstCompetitor : f.secondCompetitor;
-          var op = me === f.firstCompetitor ? f.secondCompetitor : f.firstCompetitor;
-          var w = f.winnerCompetitor;
-          if (w) {
-            var won = (w.publicId && w.publicId === p.publicId) || (w.id && me.id && w.id === me.id);
-            hist.push({ f: f, op: op, won: won });
-            if (!won) lost = true; else if (f.roundName === "final") wonFinal = true;
-          } else if (!next) next = { f: f, op: op };
-        });
-        var info = { key: fn + "|" + ln + "|" + oc, fn: fn, ln: ln, name: fn + " " + ln, unit: unitOf(p.academy, p.branch), cat: catPl(oc), raw: c.category, cid: c.parameterId, hist: hist, next: next, lost: lost, wonFinal: wonFinal, segs: segs[c.parameterId] || [], sort: Infinity, state: "plan" };
+        mine.sort(function (a, b) { return a.t - b.t || a.fightNumber - b.fightNumber; });
+        var next = null;
+        if (mine.length) { var f0 = mine[0]; next = { f: f0, op: sameComp(f0.firstCompetitor, p) ? f0.secondCompetitor : f0.firstCompetitor }; }
+        var br = BR[c.parameterId], games = br ? bracketGames(br.b, p.publicId) : [];
+        var played = games.filter(function (g) { return g.res && !g.bye; });
+        var open = games.filter(function (g) { return !g.res; });
+        var s = { key: fn + "|" + ln + "|" + oc, fn: fn, ln: ln, name: fn + " " + ln, unit: unitOf(p.academy, p.branch), cat: catPl(oc), cid: c.parameterId, hist: played, next: next, segs: segs[c.parameterId] || [], sort: Infinity, state: "plan" };
         if (next) {
           var f = next.f, cur = curNo[f.matId];
-          info.mat = (matName[f.matId] || "").replace("mata ", "");
-          info.ahead = cur ? f.fightNumber - cur.no : null;
-          info.isNow = !!(cur && cur.id === f.id);
-          info.state = info.isNow ? "now" : "next"; info.sort = f.t.getTime();
-        } else if (lost) { info.state = "out"; info.sort = 9e15; }
-        else if (hist.length) { info.state = wonFinal ? "won" : "wait"; info.sort = wonFinal ? 9e15 : 8e15; }
-        else if (info.segs.length) { info.sort = info.segs[0].start.getTime() + 1e12; }
-        unitSet[info.unit] = 1;
-        starts.push(info);
+          s.mat = (matName[f.matId] || "").replace("mata ", "");
+          s.ahead = cur ? f.fightNumber - cur.no : null;
+          s.isNow = !!(cur && cur.id === f.id);
+          s.state = s.isNow ? "now" : "next"; s.sort = f.t.getTime();
+        } else if (br && played.length && !open.length) {
+          var last = played[played.length - 1], type = br.b.type;
+          var inFinal = played.filter(function (g) { return g.round === "final"; })[0];
+          if (inFinal) s.state = inFinal.res === "w" ? "g1" : "g2";
+          else if (last.res === "l" && (last.round === "semi_final" || (type !== 1 && (br.b.totalCompetitors || 0) <= 3))) s.state = "g3";
+          else if (last.res === "l") s.state = "out";
+          else s.state = "wait";
+          s.sort = s.state === "wait" ? 8e15 : 9e15;
+        } else if (br && (played.length || open.length) && ci && ci.active) { s.state = "wait"; s.sort = 8e15; }
+        else if (ci && !ci.active && ci.end < now) { s.state = "past"; s.sort = 9.5e15; }
+        else if (ci && ci.active && now >= ci.start && !br) { s.state = "check"; s.sort = 8.5e15; }
+        else if (s.segs.length) { s.sort = s.segs[0].start.getTime() + 1e12; }
+        unitSet[s.unit] = 1;
+        starts.push(s);
       });
     });
     return { starts: starts, units: Object.keys(unitSet).sort(function (a, b) { return a.localeCompare(b, "pl"); }), actDay: d.act.name, nFights: fights.length };
@@ -152,14 +229,14 @@
     var rows = D.starts.filter(function (s) {
       if (view === "mine" && !stars.has(s.key)) return false;
       if (unit && s.unit !== unit) return false;
-      if (hide && (s.state === "out" || s.state === "won")) return false;
+      if (hide && DONE[s.state]) return false;
       if (qv && norm([s.name, s.unit, s.cat, s.mat ? "mata " + s.mat : "", s.next && pname(s.next.op)].join(" ")).indexOf(qv) < 0) return false;
       return true;
     }).sort(function (a, b) { return a.sort - b.sort || a.ln.localeCompare(b.ln, "pl"); });
     var nStars = D.starts.filter(function (s) { return stars.has(s.key); }).length;
     $("cl-status").textContent = "Dane z " + hm(lastOk) + ":" + String(lastOk.getSeconds()).padStart(2, "0") + " · dzień w systemie: " + D.actDay + " · ★ " + nStars + " · godziny w czasie polskim";
     var html = rows.map(function (s) {
-      var cls = s.state === "now" ? "now" : (s.state === "next" && s.ahead != null && s.ahead <= 2) ? "soon" : (s.state === "out" || s.state === "won") ? "out" : "";
+      var cls = s.state === "now" ? "now" : (s.state === "next" && s.ahead != null && s.ahead <= 2) ? "soon" : DONE[s.state] ? "out" : "";
       var tm = "", ln2 = "";
       if (s.state === "now" || s.state === "next") {
         var f = s.next.f, mins = Math.round((f.t - now) / 60000);
@@ -170,17 +247,22 @@
         ln2 = "<span class='mt'>mata " + esc(s.mat) + "</span> " + (s.isNow ? "<span class='tag now'>walczy teraz</span>" : s.ahead != null ? "przed nim: <b>" + s.ahead + "</b> " + (s.ahead === 1 ? "walka" : (s.ahead % 10 >= 2 && s.ahead % 10 <= 4 && (s.ahead % 100 < 10 || s.ahead % 100 >= 20)) ? "walki" : "walk") : "kolejka jeszcze nie ruszyła") +
           " · " + esc(roundPl(f.roundName)) + " · vs <b>" + (opn ? esc(opn) + "</b> <span class='un'>(" + esc((s.next.op.academy || "").trim()) + ")</span>" : "zwycięzca wcześniejszej walki</b>");
       } else if (s.state === "out") { tm = "—<small>odpadł</small>"; }
-      else if (s.state === "won") { tm = "🥇<small>wygrał kategorię</small>"; }
+      else if (s.state === "g1") { tm = "🥇<small>1. miejsce</small>"; }
+      else if (s.state === "g2") { tm = "🥈<small>2. miejsce</small>"; }
+      else if (s.state === "g3") { tm = "🥉<small>3. miejsce</small>"; }
       else if (s.state === "wait") { tm = "…<small>czeka na kolejną walkę</small>"; }
+      else if (s.state === "past") { tm = "✓<small>kategoria zakończona</small>"; ln2 = "Wynik w drabince."; }
+      else if (s.state === "check") { tm = "?<small>brak walki w kolejce</small>"; ln2 = "Kategoria już trwa – sprawdź drabinkę."; }
       else {
         var sg = s.segs;
         tm = sg.length ? dayName(sg[0].start) + " " + hm(sg[0].start) + "<small>plan bloku</small>" : "—";
         ln2 = sg.length ? "Plan: " + sg.map(function (x) { return "mata " + esc(x.mat) + " " + hm(x.start) + "–" + hm(x.end); }).join(", ") + " <span class='un'>(walki pojawią się, gdy ten dzień będzie aktywny)</span>" : "";
       }
-      var hist = s.hist.map(function (h) { return "<span class='tag " + (h.won ? "w" : "l") + "'>" + esc(roundPl(h.f.roundName)) + " " + (h.won ? "✓ wygrał" : "✗ przegrał") + (pname(h.op) ? " z " + esc(pname(h.op)) : "") + "</span>"; }).join("");
+      var hist = s.hist.map(function (h) { return "<span class='tag " + (h.res === "w" ? "w" : "l") + "'>" + esc(roundPl(h.round)) + " " + (h.res === "w" ? "✓ wygrał" : "✗ przegrał") + (h.opName ? " z " + esc(h.opName) : "") + score(h) + "</span>"; }).join("");
+      hist += " <a class='bl' href='" + EVPATH + "/brackets/" + s.cid + "' target='_blank' rel='noopener'>drabinka ↗</a>";
       return "<div class='card " + cls + "'><button class='st" + (stars.has(s.key) ? " on" : "") + "' data-k='" + esc(s.key) + "' aria-label='Moja lista'>★</button>" +
         "<div><div class='nm'>" + esc(s.name) + "</div><div class='un'>" + esc(s.unit) + " · " + esc(s.cat) + "</div></div><div class='tm'>" + tm + "</div>" +
-        (ln2 || hist ? "<div class='ln'>" + ln2 + (hist ? "<div>" + hist + "</div>" : "") + "</div>" : "") + "</div>";
+        "<div class='ln'>" + ln2 + "<div>" + hist + "</div></div></div>";
     }).join("");
     $("cl-list").innerHTML = html || "<div class='msg'>" + (view === "mine" ? "Brak zawodników na liście ★ (przy tych filtrach). Oznacz ich gwiazdką w widoku „Wszyscy” albo wczytaj kod ★." : "Brak startów dla tych filtrów.") + "</div>";
   }
