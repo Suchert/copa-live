@@ -66,7 +66,7 @@
     "#OV .mt{display:inline-block;padding:1px 8px;border-radius:999px;background:#e7f5ef;color:#0b7a5a;font-weight:700}#OV .ln{grid-column:2/4;font-size:13px;color:#344054}#OV .ln b{color:#14181f}" +
     "#OV .tag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:6px;margin:2px 4px 0 0;background:#f2f4f7;color:#344054}#OV .tag.w{background:#e7f5ef;color:#0b5a42}#OV .tag.l{background:#fee4e2;color:#912018}#OV .tag.now{background:#d92d20;color:#fff;font-weight:700}" +
     "#OV h3{font-size:13px;color:#667085;text-transform:uppercase;letter-spacing:.04em;margin:14px 2px 6px}#OV .msg{padding:10px 12px;border-radius:10px;background:#fff;border:1px dashed #d0d5dd;color:#667085}#OV .err{background:#fee4e2;color:#912018;border-color:#fda29b}" +
-    "#OV .code{display:none;padding:10px 12px;background:#fff;border-bottom:1px solid #e4e7ec}#OV .code textarea{width:100%;font:12px ui-monospace,Menlo,monospace;padding:6px;border:1px solid #d0d5dd;border-radius:8px}#OV .code.open{display:block}#OV a.bl{font-size:12px;color:#0b7a5a;white-space:nowrap}";
+    "#OV .code{display:none;padding:10px 12px;background:#fff;border-bottom:1px solid #e4e7ec}#OV .code textarea{width:100%;font:12px ui-monospace,Menlo,monospace;padding:6px;border:1px solid #d0d5dd;border-radius:8px}#OV .code.open{display:block}#OV a.bl{font-size:12px;color:#0b7a5a;white-space:nowrap}#OV .msg.warn{background:#fff4e5;border:2px solid #f79009;color:#7a2e0e;margin-bottom:10px;line-height:1.5}#OV .card.conf{box-shadow:inset 4px 0 0 #f79009}#OV .tag.cf{background:#fff4e5;color:#7a2e0e;font-weight:700}";
   var ov = document.createElement("div"); ov.id = OV;
   ov.innerHTML = "<style>" + css.replace(/#OV/g, "#" + OV) + "</style>" +
     "<div class='hd'><b>Copacabana · na żywo</b><button data-a='ref'>Odśwież</button><button data-a='code'>★ kod</button><button data-a='close'>Zamknij ✕</button><small id='cl-status'>Ładowanie…</small></div>" +
@@ -232,6 +232,25 @@
     return { starts: starts, units: Object.keys(unitSet).sort(function (a, b) { return a.localeCompare(b, "pl"); }), actDay: d.act.name, nFights: fights.length };
   }
 
+  // Konflikty mat: dwie najbliższe walki zawodników z ★ na różnych matach w odstępie < CONF_MIN minut.
+  var CONF_MIN = 10;
+  function conflicts() {
+    var list = D.starts.filter(function (s) { return stars.has(s.key) && (s.state === "now" || s.state === "next"); });
+    var map = {}, pairs = [];
+    for (var i = 0; i < list.length; i++) for (var j = i + 1; j < list.length; j++) {
+      var a = list[i], b = list[j];
+      if (a.mat === b.mat) continue;
+      var dt = Math.abs(a.next.f.t - b.next.f.t) / 60000;
+      if (dt < CONF_MIN || (a.isNow && b.isNow)) {
+        pairs.push([a, b]);
+        (map[a.key] = map[a.key] || []).push(b); (map[b.key] = map[b.key] || []).push(a);
+      }
+    }
+    pairs.sort(function (x, y) { return Math.min(x[0].sort, x[1].sort) - Math.min(y[0].sort, y[1].sort); });
+    return { map: map, pairs: pairs };
+  }
+  function confWho(s) { return esc(s.name) + " (mata " + esc(s.mat) + ", " + (s.isNow ? "teraz" : hm(s.next.f.t)) + ")"; }
+
   // ---------- widok ----------
   function render() {
     if (!D) return;
@@ -248,6 +267,10 @@
     }).sort(function (a, b) { return a.sort - b.sort || a.ln.localeCompare(b.ln, "pl"); });
     var nStars = D.starts.filter(function (s) { return stars.has(s.key); }).length;
     $("cl-status").textContent = "Dane z " + hm(lastOk) + ":" + String(lastOk.getSeconds()).padStart(2, "0") + " · dzień w systemie: " + D.actDay + " · ★ " + nStars + " · godziny w czasie polskim" + (MORE ? " · wczytuję wyniki…" : "");
+    var CF = conflicts();
+    var banner = CF.pairs.length ? "<div class='msg warn'><b>⚠ Konflikt mat</b> – w tym samym czasie (różnica &lt; " + CONF_MIN + " min):" +
+      CF.pairs.slice(0, 6).map(function (p) { return "<div>• " + confWho(p[0]) + " i " + confWho(p[1]) + "</div>"; }).join("") +
+      (CF.pairs.length > 6 ? "<div>…i jeszcze " + (CF.pairs.length - 6) + "</div>" : "") + "</div>" : "";
     var html = rows.map(function (s) {
       var cls = s.state === "now" ? "now" : (s.state === "next" && s.ahead != null && s.ahead <= 2) ? "soon" : DONE[s.state] ? "out" : "";
       var tm = "", ln2 = "";
@@ -274,11 +297,13 @@
       }
       var hist = s.hist.map(function (h) { return "<span class='tag " + (h.res === "w" ? "w" : "l") + "'>" + esc(roundPl(h.round)) + " " + (h.res === "w" ? "✓ wygrał" : "✗ przegrał") + (h.opName ? " z " + esc(h.opName) : "") + score(h) + "</span>"; }).join("");
       hist += " <a class='bl' href='" + EVPATH + "/brackets/" + s.cid + "' target='_blank' rel='noopener'>drabinka ↗</a>";
+      var cf = CF.map[s.key];
+      if (cf) { cls += " conf"; hist = "<span class='tag cf'>⚠ w tym samym czasie: " + cf.map(confWho).join(", ") + "</span>" + hist; }
       return "<div class='card " + cls + "'><button class='st" + (stars.has(s.key) ? " on" : "") + "' data-k='" + esc(s.key) + "' aria-label='Moja lista'>★</button>" +
         "<div><div class='nm'>" + esc(s.name) + "</div><div class='un'>" + esc(s.unit) + " · " + esc(s.cat) + "</div></div><div class='tm'>" + tm + "</div>" +
         "<div class='ln'>" + ln2 + "<div>" + hist + "</div></div></div>";
     }).join("");
-    $("cl-list").innerHTML = html || "<div class='msg'>" + (view === "mine" ? "Brak zawodników na liście ★ (przy tych filtrach). Oznacz ich gwiazdką w widoku „Wszyscy” albo wczytaj kod ★." : "Brak startów dla tych filtrów.") + "</div>";
+    $("cl-list").innerHTML = banner + html || "<div class='msg'>" + (view === "mine" ? "Brak zawodników na liście ★ (przy tych filtrach). Oznacz ich gwiazdką w widoku „Wszyscy” albo wczytaj kod ★." : "Brak startów dla tych filtrów.") + "</div>";
   }
 
   // ---------- obsługa ----------
